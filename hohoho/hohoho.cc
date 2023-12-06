@@ -4,12 +4,8 @@
 // christmas led goodness
 //
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
-#include <cstring>
-#include <limits>
 #include <vector>
 #include "pico/stdlib.h"
 #include "../pico_dma_ws2812/pico_dma_ws2812.hpp"
