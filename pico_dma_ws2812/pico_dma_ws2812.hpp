@@ -52,32 +52,13 @@ class WS2812 {
     };
 #pragma pack(pop)
 
-    WS2812(uint num_leds, PIO pio, uint sm, uint pin,
+    WS2812(uint num_leds, PIO pio, uint sm, uint irq, uint pin,
            uint freq = DEFAULT_SERIAL_FREQ);
-    ~WS2812() {
-        clear();
-        update(true);
-        dma_channel_unclaim(dma_channel);
-        pio_sm_set_enabled(pio, sm, false);
-        pio_remove_program(pio, &ws2812_program, pio_program_offset);
-#ifndef MICROPY_BUILD_TYPE
-        // pio_sm_unclaim seems to hardfault in MicroPython
-        pio_sm_unclaim(pio, sm);
-#endif
-        // Only delete buffers we have allocated ourselves.
-        for (uint i = 0; i < BUFFER_COUNT; i++) {
-            delete[] buffer[i];
-        }
-        delete[] buffer;
-    }
-
-    static int dma_channel;
-    volatile static mutex_t data_send_mutex;
+    ~WS2812();
 
     static int64_t reset_time_alert_callback(alarm_id_t id, void *user_data);
-    static void dma_complete_callback();
 
-    bool update(bool blocking = false);
+    bool update();
     void set_request_send();
     void send();
     void clear();
@@ -87,9 +68,10 @@ class WS2812 {
    private:
     PIO pio;
     uint sm;
+    uint irq;
+    int dma_channel;
     uint pio_program_offset;
     uint32_t num_leds;
     RGB **buffer;
     bool request_send = false;
-    mutex_t flip_buffer_mutex;
 };

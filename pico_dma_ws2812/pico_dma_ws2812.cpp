@@ -1,16 +1,34 @@
 // Copyright (c) 2022, Takuya Urakawa (Dm9Records 5z6p.com)
 // SPDX-License-Identifier: MIT
 
+// modified by alex mole:
+//   * switched to RGB channel ordering
+//   * removed mutex and made all calls blocking
+//   * add support for two different sets of WS2812 strings with different DMA channels
+
 #include "pico_dma_ws2812.hpp"
 
 #include <cstring>
-#include "stdio.h"
 
-int WS2812::dma_channel;
-volatile mutex_t WS2812::data_send_mutex;
 
-WS2812::WS2812(uint num_leds, PIO pio, uint sm, uint pin, uint freq)
-    : num_leds(num_leds), pio(pio), sm(sm) {
+static int gDmaChannelPerIrq[2] = { -1, -1 };
+
+static void dmaIrq0Complete() {
+    if (gDmaChannelPerIrq[0] >= 0)
+        dma_hw->ints0 = 1u << gDmaChannelPerIrq[0];
+}
+static void dmaIrq1Complete() {
+    if (gDmaChannelPerIrq[1] >= 0)
+        dma_hw->ints1 = 1u << gDmaChannelPerIrq[1];
+}
+
+
+WS2812::WS2812(uint num_leds, PIO pio, uint sm, uint irq, uint pin, uint freq)
+    : num_leds(num_leds)
+    , pio(pio)
+    , sm(sm)
+    , irq(irq)
+{
     buffer = new RGB *[BUFFER_COUNT];
     for (uint i = 0; i < BUFFER_COUNT; i++) {
         buffer[i] = new RGB[num_leds];
@@ -46,38 +64,54 @@ WS2812::WS2812(uint num_leds, PIO pio, uint sm, uint pin, uint freq)
     dma_channel_configure(dma_channel, &config, &pio->txf[sm], NULL, 0, false);
 
     // DMA complete irq setting
-    dma_channel_set_irq0_enabled(dma_channel, true);
-    irq_set_exclusive_handler(DMA_IRQ_0, dma_complete_callback);
-    irq_set_enabled(DMA_IRQ_0, true);
-
-    mutex_init(const_cast<mutex_t *>(&data_send_mutex));
-    mutex_init(&flip_buffer_mutex);
+    gDmaChannelPerIrq[irq] = dma_channel;
+    if (irq == 0) {
+        dma_channel_set_irq0_enabled(dma_channel, true);
+        irq_set_exclusive_handler(DMA_IRQ_0, dmaIrq0Complete);
+        irq_set_enabled(DMA_IRQ_0, true);
+    }
+    else {
+        dma_channel_set_irq1_enabled(dma_channel, true);
+        irq_set_exclusive_handler(DMA_IRQ_1, dmaIrq1Complete);
+        irq_set_enabled(DMA_IRQ_1, true);
+    }
 }
 
-bool WS2812::update(bool blocking) {
+WS2812::~WS2812() {
+    clear();
+    update();
+    dma_channel_unclaim(dma_channel);
+    gDmaChannelPerIrq[irq] = -1;
+    pio_sm_set_enabled(pio, sm, false);
+    pio_remove_program(pio, &ws2812_program, pio_program_offset);
+#ifndef MICROPY_BUILD_TYPE
+    // pio_sm_unclaim seems to hardfault in MicroPython
+    pio_sm_unclaim(pio, sm);
+#endif
+    // Only delete buffers we have allocated ourselves.
+    for (uint i = 0; i < BUFFER_COUNT; i++) {
+        delete[] buffer[i];
+    }
+    delete[] buffer;
+}
+
+
+bool WS2812::update() {
     if (!request_send) return false;
 
-    bool mutex_owned =
-        mutex_try_enter(const_cast<mutex_t *>(&data_send_mutex), NULL);
-
-    if (!mutex_owned && !blocking) return false;
-
-    if (!mutex_owned)
-        mutex_enter_blocking(const_cast<mutex_t *>(&data_send_mutex));
-
     // copy buffer to out
-    mutex_enter_blocking(&flip_buffer_mutex);
     memcpy(buffer[BUFFER_OUT], buffer[BUFFER_IN], sizeof(RGB) * num_leds);
     request_send = false;
-    mutex_exit(&flip_buffer_mutex);
 
     add_alarm_in_us(LED_RESET_TIME, reset_time_alert_callback, (void *)this,
                     false);
 
-    if (blocking) {
-        while (dma_channel_is_busy(dma_channel)) {
-        }
+    for (;;)
+    {
+        if (dma_channel_is_busy(dma_channel))
+            break;
     }
+
     return true;
 }
 
@@ -87,20 +121,13 @@ void WS2812::send() {
 }
 
 void WS2812::set_request_send() {
-    mutex_enter_blocking(&flip_buffer_mutex);
     request_send = true;
-    mutex_exit(&flip_buffer_mutex);
 }
 
 int64_t WS2812::reset_time_alert_callback(alarm_id_t id, void *user_data) {
     WS2812 *ws2812 = static_cast<WS2812 *>(user_data);
     ws2812->send();
     return 0;
-}
-
-void WS2812::dma_complete_callback() {
-    mutex_exit(const_cast<mutex_t *>(&data_send_mutex));
-    dma_hw->ints0 = 1u << WS2812::dma_channel;
 }
 
 void WS2812::clear() {
@@ -142,8 +169,6 @@ void WS2812::set_hsv(uint32_t index, float h, float s, float v) {
 void WS2812::set_rgb(uint32_t index, uint8_t r, uint8_t g, uint8_t b) {
     if (index >= num_leds) return;
 
-    mutex_enter_blocking(&flip_buffer_mutex);
     buffer[BUFFER_IN][index].rgb(r, g, b);
     request_send = true;
-    mutex_exit(&flip_buffer_mutex);
 }

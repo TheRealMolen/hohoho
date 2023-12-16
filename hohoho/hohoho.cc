@@ -10,6 +10,30 @@
 #include "pico/stdlib.h"
 #include "../pico_dma_ws2812/pico_dma_ws2812.hpp"
 
+
+struct Rgb { uint8_t r, g, b; };
+namespace col
+{
+    const Rgb CalmWhite(130, 70, 20);
+    const Rgb NiceRed(180, 0, 0);
+    const Rgb NiceGreen(5, 85, 0);
+    const Rgb NiceBlue(5, 0, 40);
+    const Rgb NiceAmber(130, 35, 0);
+    const Rgb NicePink(140, 20, 40);
+
+    const Rgb Dark(0, 0, 2);
+};
+
+
+using std::begin, std::end;
+
+constexpr int LedPin = 25;
+constexpr int NeopixelAPin = 28;
+constexpr int NeopixelBPin = 2;
+constexpr int NumLeds = 50;
+
+
+
 #define kPerlinOctaves      3
 static const float kaPerlinOctaveAmplitude[kPerlinOctaves] =
 {
@@ -57,11 +81,6 @@ float perlinNoise1D( float x )
 }
 
 
-
-#define CLASSIC_XMASx
-
-struct Rgb { uint8_t r, g, b; };
-
 struct FRgb
 {
     float r, g, b;
@@ -81,43 +100,21 @@ struct FRgb
     }
 };
 
-namespace col
-{
-    const Rgb CalmWhite(130, 70, 20);
-    const Rgb NiceRed(140, 0, 0);
-    const Rgb NiceGreen(5, 100, 0);
-    const Rgb NiceBlue(5, 0, 40);
-    const Rgb NiceAmber(130, 35, 0);
-    const Rgb NicePink(140, 20, 40);
-
-    const Rgb Dark(0, 0, 2);
-};
-
-
-using std::begin, std::end;
-
-constexpr int LedPin = 25;
-constexpr int NeopixelPin = 28;
-constexpr int NumLeds = 50;
 
 bool gLedState = false;
 
-auto gNeoPixels = WS2812(NumLeds, pio0, 0 /* sm? */, NeopixelPin);
+auto gNeoPixelsA = WS2812(NumLeds, pio0, 0, 0, NeopixelAPin);
+auto gNeoPixelsB = WS2812(NumLeds, pio1, 1, 1, NeopixelBPin);
 
 
-void set_pixel(int pixelIx, const FRgb& rgb)
+inline void set_pixel(WS2812& leds, int pixelIx, const FRgb& rgb)
 {
-    gNeoPixels.set_rgb(pixelIx, uint8_t(rgb.r * 255.f), uint8_t(rgb.g * 255.f), uint8_t(rgb.b * 255.f));
+    leds.set_rgb(pixelIx, uint8_t(rgb.r * 255.f), uint8_t(rgb.g * 255.f), uint8_t(rgb.b * 255.f));
 }
 
-void loop()
-{
-    uint64_t usSinceBoot = to_us_since_boot(get_absolute_time());
-    // choose to wrap rather than have precision degrade
-    usSinceBoot &= 0xfffffffffull;
-    float now = (float(usSinceBoot) * (1.f / (1000.f * 1000.f)));
 
-#ifdef CLASSIC_XMAS
+void updateStringA(float now)
+{
     int currLed = int(NumLeds * (0.5f + 0.5f * cosf(now * 2.f)));
 
     for (int i=0; i<NumLeds; ++i)
@@ -130,11 +127,12 @@ void loop()
             float t = cosf(float(i) * 0.3f + now * 4.f);
             col = (t > 0.4f) ? col::NiceBlue : col::NiceAmber;
         }
-        gNeoPixels.set_rgb(i, col.r, col.g, col.b);
+        gNeoPixelsA.set_rgb(i, col.r, col.g, col.b);
     }
+}
 
-#else
-
+void updateStringB(float now)
+{
     FRgb baseCol(col::CalmWhite);
     for (int i=0; i<NumLeds; ++i)
     {
@@ -143,12 +141,23 @@ void loop()
         t += 0.6f * perlinNoise1D(float(i) * 3.f + now * 10.f);
 
         FRgb col = baseCol * t;
-        set_pixel(i, col);
+        set_pixel(gNeoPixelsB, i, col);
     }
+}
 
-#endif
 
-    gNeoPixels.update(true);
+void loop()
+{
+    uint64_t usSinceBoot = to_us_since_boot(get_absolute_time());
+    // choose to wrap rather than have precision degrade
+    usSinceBoot &= 0xfffffffffull;
+    float now = (float(usSinceBoot) * (1.f / (1000.f * 1000.f)));
+
+    updateStringA(now);
+    updateStringB(now);
+
+    gNeoPixelsA.update();
+    gNeoPixelsB.update();
 }
 
 int main() {
