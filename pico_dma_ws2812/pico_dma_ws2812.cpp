@@ -166,6 +166,40 @@ void WS2812::set_hsv(uint32_t index, float h, float s, float v) {
     }
 }
 
+void WS2812::set_hsv_scaled(uint32_t index, float h, float s, float v, float rScale, float gScale, float bScale)
+{
+    using u8 = uint8_t;
+
+    float i = floor(h * 6.0f);
+    float f = h * 6.0f - i;
+    v *= 255.0f;
+    float p = v * (1.0f - s);
+    float q = v * (1.0f - f * s);
+    float t = v * (1.0f - (1.0f - f) * s);
+
+    switch (int(i) % 6) {
+        case 0:
+            set_rgb(index, u8(v * rScale), u8(t * gScale), u8(p * bScale));
+            break;
+        case 1:
+            set_rgb(index, u8(q * rScale), u8(v * gScale), u8(p * bScale));
+            break;
+        case 2:
+            set_rgb(index, u8(p * rScale), u8(v * gScale), u8(t * bScale));
+            break;
+        case 3:
+            set_rgb(index, u8(p * rScale), u8(q * gScale), u8(v * bScale));
+            break;
+        case 4:
+            set_rgb(index, u8(t * rScale), u8(p * gScale), u8(v * bScale));
+            break;
+        case 5:
+            set_rgb(index, u8(v * rScale), u8(p * gScale), u8(q * bScale));
+            break;
+    }
+}
+
+
 void WS2812::set_rgb(uint32_t index, uint8_t r, uint8_t g, uint8_t b) {
     if (index >= num_leds) return;
 

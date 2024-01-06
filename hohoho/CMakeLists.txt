@@ -1,5 +1,6 @@
 add_executable(hohoho
         hohoho.cc
+        noise.cc
         )
         
 target_compile_options(hohoho PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-volatile>)

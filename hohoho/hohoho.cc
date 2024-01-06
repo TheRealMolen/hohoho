@@ -10,19 +10,10 @@
 #include "pico/stdlib.h"
 #include "../pico_dma_ws2812/pico_dma_ws2812.hpp"
 
+#include "colour.h"
+#include "noise.h"
 
-struct Rgb { uint8_t r, g, b; };
-namespace col
-{
-    const Rgb CalmWhite(130, 70, 20);
-    const Rgb NiceRed(180, 0, 0);
-    const Rgb NiceGreen(5, 85, 0);
-    const Rgb NiceBlue(5, 0, 40);
-    const Rgb NiceAmber(130, 35, 0);
-    const Rgb NicePink(140, 20, 40);
-
-    const Rgb Dark(0, 0, 2);
-};
+#define XMAS
 
 
 using std::begin, std::end;
@@ -31,74 +22,6 @@ constexpr int LedPin = 25;
 constexpr int NeopixelAPin = 28;
 constexpr int NeopixelBPin = 2;
 constexpr int NumLeds = 50;
-
-
-
-#define kPerlinOctaves      3
-static const float kaPerlinOctaveAmplitude[kPerlinOctaves] =
-{
-  0.75f, 0.4f, 0.1f,
-};
-
-float perlinNoise1( long x )
-{
-  x = ( x<<13 ) ^ x;
-  return ( 1.0f - ( (x * (x * x * 15731 + 789221L) + 1376312589L) & 0x7fffffff) * (1.0f / 1073741824.0f) );
-}
-
-float perlinSmoothedNoise1( long x )
-{
-  return perlinNoise1(x)*0.5f
-       + perlinNoise1(x-1)*0.25f
-       + perlinNoise1(x+1)*0.25f;
-}
-
-float perlinLerpedNoise1( float x )
-{
-  long  xInteger  = long(x);
-  float xFraction = x - xInteger;
-
-  float v1 = perlinSmoothedNoise1( xInteger );
-  float v2 = perlinSmoothedNoise1( xInteger + 1 );
-
-  return std::lerp( v1, v2, xFraction );
-}
-
-float perlinNoise1D( float x )
-{
-  float total = 0.0f;
-
-  for( int octave = 0; octave < kPerlinOctaves; octave++ )
-  {
-    int   frequency = 1 << octave;
-    float amplitude = kaPerlinOctaveAmplitude[octave];
-
-    total += perlinLerpedNoise1( x * frequency ) * amplitude;
-  }
-
-  // map from [-1,1] to [0,1] and constrain
-  return std::clamp( (total + 1.0f) * 0.5f, 0.0f, 1.0f );
-}
-
-
-struct FRgb
-{
-    float r, g, b;
-
-    FRgb(float r, float g, float b) : r(r), g(g), b(b) { /**/ }
-    FRgb(const Rgb& rgb)
-    {
-        r = float(rgb.r) * (1.f / 255.f);
-        g = float(rgb.g) * (1.f / 255.f);
-        b = float(rgb.b) * (1.f / 255.f);
-    }
-
-    FRgb operator*(float s)
-    {
-        s = std::clamp(s, 0.f, 1.f);
-        return {r * s, g * s, b * s};
-    }
-};
 
 
 bool gLedState = false;
@@ -113,10 +36,10 @@ inline void set_pixel(WS2812& leds, int pixelIx, const FRgb& rgb)
 }
 
 
+#ifdef XMASx
+
 void updateStringA(float now)
 {
-    int currLed = int(NumLeds * (0.5f + 0.5f * cosf(now * 2.f)));
-
     for (int i=0; i<NumLeds; ++i)
     {
         Rgb col = col::NiceRed;
@@ -145,6 +68,48 @@ void updateStringB(float now)
     }
 }
 
+void updateLights(float now)
+{
+    updateStringA(now);
+    updateStringB(now);
+}
+
+#else
+
+inline constexpr float easeInOut3(float x)
+{
+    if (x < 0.5f)
+        return 4.f * x * x * x;
+    
+    x = (2.f * x) - 2.f;
+	return (0.5f * x * x * x) + 1.f;
+}
+
+inline FRgb calc_light_col_hsv(int i, float now)
+{
+    return { 0.5f * (1.f + cosf(float(i) * 0.3f + now * 1.5f)),
+             0.3f + 0.4f * perlinNoise1D(float(i) * 3.f + now * 10.f),
+             0.33f };
+}
+
+void updateLights(float now)
+{
+    sleep_us(100);
+    for (int i=0; i<NumLeds; ++i)
+    {
+        FRgb col = calc_light_col_hsv(i + 0, now);
+        gNeoPixelsA.set_hsv_scaled(i, col.r, col.g, col.b, 1.f, 0.6f, 0.2f);
+    }
+    sleep_us(100);
+    for (int i=0; i<NumLeds; ++i)
+    {
+        FRgb col = calc_light_col_hsv(99 - i, now);
+        gNeoPixelsB.set_hsv_scaled(i, col.r, col.g, col.b, 1.f, 0.6f, 0.1f);
+    }
+}
+
+#endif
+
 
 void loop()
 {
@@ -153,8 +118,7 @@ void loop()
     usSinceBoot &= 0xfffffffffull;
     float now = (float(usSinceBoot) * (1.f / (1000.f * 1000.f)));
 
-    updateStringA(now);
-    updateStringB(now);
+    updateLights(now);
 
     gNeoPixelsA.update();
     gNeoPixelsB.update();
