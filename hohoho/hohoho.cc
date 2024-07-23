@@ -13,7 +13,7 @@
 #include "colour.h"
 #include "noise.h"
 
-#define XMAS
+#define XMASx
 
 
 using std::begin, std::end;
@@ -36,7 +36,7 @@ inline void set_pixel(WS2812& leds, int pixelIx, const FRgb& rgb)
 }
 
 
-#ifdef XMASx
+#ifdef XMAS
 
 void updateStringA(float now)
 {
@@ -85,11 +85,21 @@ inline constexpr float easeInOut3(float x)
 	return (0.5f * x * x * x) + 1.f;
 }
 
-inline FRgb calc_light_col_hsv(int i, float now)
+inline FHsv calc_light_col_hsv(int i, float now)
 {
-    return { 0.5f * (1.f + cosf(float(i) * 0.3f + now * 1.5f)),
-             0.3f + 0.4f * perlinNoise1D(float(i) * 3.f + now * 10.f),
-             0.33f };
+    // return { 0.5f * (1.f + cosf(float(i) * 0.3f + now * 1.5f)),
+    //          0.3f + 0.4f * perlinNoise1D(float(i) * 3.f + now * 10.f),
+    //          0.33f };
+
+    if (i & 2)
+    {
+        return { 0.055f,
+                 1.f,
+                 0.1f + 0.3f * perlinNoise1D(float(i) * 3.f + now * 7.f) };
+    }
+    return { 0.3f,
+             1.f,
+             0.05f + 0.3f * perlinNoise1D(float(i) * 3.f + now * 6.f) };
 }
 
 void updateLights(float now)
@@ -97,14 +107,14 @@ void updateLights(float now)
     sleep_us(100);
     for (int i=0; i<NumLeds; ++i)
     {
-        FRgb col = calc_light_col_hsv(i + 0, now);
-        gNeoPixelsA.set_hsv_scaled(i, col.r, col.g, col.b, 1.f, 0.6f, 0.2f);
+        FHsv col = calc_light_col_hsv(i + 0, now);
+        gNeoPixelsA.set_hsv_scaled(i, col.h, col.s, col.v, 1.f, 0.6f, 0.2f);
     }
     sleep_us(100);
     for (int i=0; i<NumLeds; ++i)
     {
-        FRgb col = calc_light_col_hsv(99 - i, now);
-        gNeoPixelsB.set_hsv_scaled(i, col.r, col.g, col.b, 1.f, 0.6f, 0.1f);
+        FHsv col = calc_light_col_hsv(99 - i, now);
+        gNeoPixelsB.set_hsv_scaled(i, col.h, col.s, col.v, 1.f, 0.6f, 0.2f);
     }
 }
 

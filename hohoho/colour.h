@@ -37,4 +37,17 @@ struct FRgb
     }
 };
 
+struct FHsv
+{
+    float h, s, v;
+
+    FHsv(float h, float s, float v) : h(h), s(s), v(v) { /**/ }
+
+    FHsv operator*(float k)
+    {
+        k = std::clamp(k, 0.f, 1.f);
+        return {h * k, s * k, v * k};
+    }
+};
+
 
