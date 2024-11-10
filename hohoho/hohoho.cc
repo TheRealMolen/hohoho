@@ -13,22 +13,38 @@
 #include "colour.h"
 #include "noise.h"
 
+#define V_BOARD  2
 #define XMASx
+
+constexpr bool board2 = (V_BOARD == 2);
 
 
 using std::begin, std::end;
 
 constexpr int LedPin = 25;
 constexpr int NeopixelAPin = 28;
-constexpr int NeopixelBPin = 2;
-constexpr int NumLeds = 50;
+constexpr int NumLeds = board2 ? 150 : 50;
 
 
 bool gLedState = false;
 
 auto gNeoPixelsA = WS2812(NumLeds, pio0, 0, 0, NeopixelAPin);
-auto gNeoPixelsB = WS2812(NumLeds, pio1, 1, 1, NeopixelBPin);
 
+
+#if V_BOARD == 1
+constexpr int NeopixelBPin = 2;
+auto gNeoPixelsB = WS2812(NumLeds, pio1, 1, 1, NeopixelBPin);
+#endif
+
+
+inline constexpr float easeInOut3(float x)
+{
+    if (x < 0.5f)
+        return 4.f * x * x * x;
+    
+    x = (2.f * x) - 2.f;
+	return (0.5f * x * x * x) + 1.f;
+}
 
 inline void set_pixel(WS2812& leds, int pixelIx, const FRgb& rgb)
 {
@@ -74,16 +90,7 @@ void updateLights(float now)
     updateStringB(now);
 }
 
-#else
-
-inline constexpr float easeInOut3(float x)
-{
-    if (x < 0.5f)
-        return 4.f * x * x * x;
-    
-    x = (2.f * x) - 2.f;
-	return (0.5f * x * x * x) + 1.f;
-}
+#elif (V_BOARD == 1)
 
 inline FHsv calc_light_col_hsv(int i, float now)
 {
@@ -118,6 +125,45 @@ void updateLights(float now)
     }
 }
 
+#else // board #2
+
+
+FHsv gentle_shimmer(int i, float now)
+{
+    return {
+        0.1f,
+        0.3f,
+        0.3f * perlinNoise1D(float(i) * 3.f + now * 5.f) };
+}
+
+FHsv classic_xmas(int i, float now)
+{
+    float v = 0.05f + 0.2f * perlinNoise1D(float(i) * 3.f + now * 4.f);
+    v = std::max(0.f, v);
+    switch(i & 3)
+    {
+        case 0: return { 0.f, 0.8f, v };      // red
+        case 1: return { 0.6f, 1.f, v };     // blue
+        case 2: return { 0.1f, 0.8f, v };    // amber
+        default: return { 0.35f, 0.8f, v };   // green
+    }
+}
+
+
+void updateLights(float now)
+{
+    sleep_us(500);
+    for (int i=0; i<NumLeds; ++i)
+    {
+        FHsv scene1 = classic_xmas(i, now);
+        FHsv scene2 = gentle_shimmer(i, now);
+        float scene = easeInOut3(perlinNoise1D(float(i) * 0.1f + now * 1.f));
+        FHsv col = lerp(scene1, scene2, scene);
+
+        gNeoPixelsA.set_hsv_scaled(i, col.h, col.s, col.v, 1.f, 0.6f, 0.2f);
+    }
+}
+
 #endif
 
 
@@ -131,7 +177,10 @@ void loop()
     updateLights(now);
 
     gNeoPixelsA.update();
+
+#if V_BOARD == 1
     gNeoPixelsB.update();
+#endif
 }
 
 int main() {

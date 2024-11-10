@@ -51,3 +51,23 @@ struct FHsv
 };
 
 
+inline FHsv lerp(const FHsv& a, const FHsv& b, float t)
+{
+    const float dh = b.h - a.h;
+    float h = std::lerp(a.h, b.h, t);
+    if (fabsf(dh) > 0.5f)
+    {
+        h = a.h + t * (1.f - dh);
+        if (h < 0.f)
+            h += 1.f;
+        else if (h >= 1.f)
+            h -= 1.f;
+    }
+
+    return FHsv {
+        h,
+        std::lerp(a.s, b.s, t),
+        std::lerp(a.v, b.v, t)
+    };
+}
+
