@@ -65,6 +65,7 @@ class WS2812 {
     void set_hsv(uint32_t index, float h, float s, float v);
     void set_hsv_scaled(uint32_t index, float h, float s, float v, float rScale, float gScale, float bScale);
     void set_rgb(uint32_t index, uint8_t r, uint8_t g, uint8_t b);
+    const RGB& get_rgb(uint32_t index) const { return buffer[BUFFER_IN][index]; }
 
    private:
     PIO pio;

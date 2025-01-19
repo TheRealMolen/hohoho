@@ -5,7 +5,7 @@ add_executable(hohoho
         
 target_compile_options(hohoho PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-volatile>)
 
-target_link_libraries(hohoho pico_stdlib pico_dma_ws2812)
+target_link_libraries(hohoho pico_stdlib pico_dma_ws2812 pico_rand)
 
 # enable usb output, disable uart output
 pico_enable_stdio_usb(hohoho 1)
