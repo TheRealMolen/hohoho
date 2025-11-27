@@ -44,6 +44,7 @@ struct FHsv
 
     FHsv() = default;
     FHsv(float h, float s, float v) : h(h), s(s), v(v) { /**/ }
+    constexpr FHsv(const Rgb& rgb);
 
     FHsv operator*(float k)
     {
@@ -51,38 +52,113 @@ struct FHsv
         return {h * k, s * k, v * k};
     }
 
+    FRgb toRgb();
     Rgb toRgbScaled(float rScale, float gScale, float bScale);
 };
 
+
+constexpr FHsv::FHsv(const Rgb& rgb)
+{
+    const float r = float(rgb.r) * (1.f / 255.f);
+    const float g = float(rgb.g) * (1.f / 255.f);
+    const float b = float(rgb.b) * (1.f / 255.f);
+
+    const float hi = std::max(std::max(r, g), b);
+    const float lo = std::min(std::min(r, g), b);
+
+    if (fabsf(hi - lo) < std::numeric_limits<float>::epsilon()) // pure greyscale
+    {
+        h = 0.f;
+        s = 0.f;
+        v = hi;
+        return;
+    }
+
+    float d, h6;
+    if (r == lo)
+    {
+        d = g - b;
+        h6 = 3.f;
+    }
+    else if (b == lo)
+    {
+        d = r - g;
+        h6 = 1.f;
+    }
+    else
+    {
+        d = b - r;
+        h6 = 5.f;
+    }
+
+    h = (1.f / 6.f) * (h6 - (d / (hi - lo)));
+    s = (hi - lo) / hi;
+    v = hi;
+}
+
+inline FRgb FHsv::toRgb()
+{
+    using uint = unsigned int;
+
+    const float h6 = h * 6.0f;
+    const float i = floorf(h6);
+    const float f = h6 - i;
+    const float p = v * (1.0f - s);
+    const float q = v * (1.0f - f * s);
+    const float t = v * (1.0f - (1.0f - f) * s);
+
+    switch (uint(i) % 6) {
+        case 0:
+            return { v, t, p };// { u8(v255 * rScale), u8(t * gScale), u8(p * bScale) };
+        case 1:
+            return { q, v, p };//{ u8(q * rScale), u8(v255 * gScale), u8(p * bScale) };
+        case 2:
+            return { p, v, t };//{ u8(p * rScale), u8(v255 * gScale), u8(t * bScale) };
+        case 3:
+            return { p, q, v };//{ u8(p * rScale), u8(q * gScale), u8(v255 * bScale) };
+        case 4:
+            return { t, p, v };//{ u8(t * rScale), u8(p * gScale), u8(v255 * bScale) };
+        case 5:
+            return { v, p, q };//{ u8(v255 * rScale), u8(p * gScale), u8(q * bScale) };
+    }
+
+    return { 128, 128, 128 };
+}
 
 inline Rgb FHsv::toRgbScaled(float rScale, float gScale, float bScale)
 {
     using u8 = uint8_t;
 
-    const float h6 = h * 6.0f;
-    const float i = floor(h6);
-    const float f = h6 - i;
-    const float v255 = v * 255.0f;
-    const float p = v255 * (1.0f - s);
-    const float q = v255 * (1.0f - f * s);
-    const float t = v255 * (1.0f - (1.0f - f) * s);
+    FRgb rgb = toRgb();
 
-    switch (int(i) % 6) {
-        case 0:
-            return { u8(v255 * rScale), u8(t * gScale), u8(p * bScale) };
-        case 1:
-            return { u8(q * rScale), u8(v255 * gScale), u8(p * bScale) };
-        case 2:
-            return { u8(p * rScale), u8(v255 * gScale), u8(t * bScale) };
-        case 3:
-            return { u8(p * rScale), u8(q * gScale), u8(v255 * bScale) };
-        case 4:
-            return { u8(t * rScale), u8(p * gScale), u8(v255 * bScale) };
-        case 5:
-            return { u8(v255 * rScale), u8(p * gScale), u8(q * bScale) };
-    }
+    return {
+        u8(rgb.r * 255.f * rScale),
+        u8(rgb.g * 255.f * gScale),
+        u8(rgb.b * 255.f * bScale)
+    };
 
-    return { 128, 128, 128 };
+    // const float h6 = h * 6.0f;
+    // const float i = floorf(h6);
+    // const float f = h6 - i;
+    // const float v255 = v * 255.0f;
+    // const float p = v255 * (1.0f - s);
+    // const float q = v255 * (1.0f - f * s);
+    // const float t = v255 * (1.0f - (1.0f - f) * s);
+
+    // switch (uint(i) % 6) {
+    //     case 0:
+    //         return { u8(v255 * rScale), u8(t * gScale), u8(p * bScale) };
+    //     case 1:
+    //         return { u8(q * rScale), u8(v255 * gScale), u8(p * bScale) };
+    //     case 2:
+    //         return { u8(p * rScale), u8(v255 * gScale), u8(t * bScale) };
+    //     case 3:
+    //         return { u8(p * rScale), u8(q * gScale), u8(v255 * bScale) };
+    //     case 4:
+    //         return { u8(t * rScale), u8(p * gScale), u8(v255 * bScale) };
+    //     case 5:
+    //         return { u8(v255 * rScale), u8(p * gScale), u8(q * bScale) };
+    // }
 }
 
 

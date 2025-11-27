@@ -17,9 +17,12 @@
 #include "colour.h"
 #include "noise.h"
 
-#define V_BOARD  2
-#define XMASx
-#define WINTER
+// board 1 is og T shaped board with 2 independent 50 led strings coming off it
+// board 2 is one string of 150 leds
+// board 3 is one string of 50 leds
+#define V_BOARD  1
+#define XMAS
+#define WINTERx
 
 constexpr bool board2 = (V_BOARD == 2);
 constexpr bool board3 = (V_BOARD == 3);
@@ -57,37 +60,58 @@ inline void set_pixel(WS2812& leds, int pixelIx, const FRgb& rgb)
     leds.set_rgb(pixelIx, uint8_t(rgb.r * 255.f), uint8_t(rgb.g * 255.f), uint8_t(rgb.b * 255.f));
 }
 
+template<typename T>
+inline T sign(T x)
+{
+    return (x >= T(0)) ? T(1) : T(-1);
+}
 
 #ifdef XMAS
 
-void updateStringA(float now)
+void updateString(float now, auto& string)
 {
+    FHsv blue(col::NiceBlue);
+    FHsv amber(col::NiceAmber);
+
     for (int i=0; i<NumLeds; ++i)
     {
-        Rgb col = col::NiceRed;
+        FRgb col = col::NiceRed;
         if ((i & 3) == 2)
             col = col::NiceGreen;
         if (i & 1)
         {
-            float t = cosf(float(i) * 0.3f + now * 4.f);
-            col = (t > 0.4f) ? col::NiceBlue : col::NiceAmber;
+            float t = cosf(float(i) * 0.3f + now * 1.f);
+            t *= 1.3f;                       // scale up
+            t = std::clamp(t, -1.f, 1.f);   // clamp to get clipped flat tops
+            const float sgn = sign(t);
+            t = sgn * powf(t * sgn, 0.1f);  // smooth transitions
+            t = 0.5f * (1.f + t);
+            t = std::clamp(t, 0.f, 1.f);
+
+            col = lerp(blue, amber, t).toRgb();
         }
-        gNeoPixelsA.set_rgb(i, col.r, col.g, col.b);
+
+        FRgb out(col);
+
+        {
+            float t = cosf(float(i) * (6.28f / NumLeds) + now * 0.4f);
+            t = 0.6f * std::max(0.f, t);
+            t += 0.4f * perlinNoise1D(float(i) * 3.f + now * 4.f);
+            out = out * t;
+        }
+
+        set_pixel(string, i, out);
     }
+}
+
+void updateStringA(float now)
+{
+    updateString(now, gNeoPixelsA);
 }
 
 void updateStringB(float now)
 {
-    FRgb baseCol(col::CalmWhite);
-    for (int i=0; i<NumLeds; ++i)
-    {
-        float t = cosf(float(i) * (6.28f / NumLeds) + now * 0.8f);
-        t = 0.4f * std::max(0.f, t);
-        t += 0.6f * perlinNoise1D(float(i) * 3.f + now * 10.f);
-
-        FRgb col = baseCol * t;
-        set_pixel(gNeoPixelsB, i, col);
-    }
+    updateString(now, gNeoPixelsB);
 }
 
 void updateLights(float now)
@@ -358,8 +382,6 @@ void updateLights(float now)
         Rgb rgb = col.toRgbScaled(1.f, 0.6f, 0.3f);
         gNeoPixelsA.set_rgb(i, rgb.r, rgb.g, rgb.b);
     }
-
-    sleep_us(500);
 }
 
 #else // board #2
@@ -414,9 +436,11 @@ void loop()
     updateLights(now);
 
     gNeoPixelsA.update();
+    sleep_us(500);
 
 #if V_BOARD == 1
     gNeoPixelsB.update();
+    sleep_us(500);
 #endif
 }
 
@@ -427,7 +451,9 @@ int main() {
 
     stdio_usb_init();
 
+#ifdef WINTER
     init_particles();
+#endif
 
     for(;;)
     {
