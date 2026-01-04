@@ -4,6 +4,18 @@
 // christmas led goodness
 //
 
+// board 1 is og T shaped board with 2 independent 50 led strings coming off it
+// board 2 is one string of 150 leds
+// board 3 is one string of 50 leds
+// board 4 is one 5x8 panel of 40 leds
+#define V_BOARD  4
+#define XMASx
+#define WINTERx
+
+constexpr bool board2 = (V_BOARD == 2);
+constexpr bool board3 = (V_BOARD == 3);
+constexpr bool board4 = (V_BOARD == 4);
+
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -17,23 +29,16 @@
 #include "colour.h"
 #include "noise.h"
 
-// board 1 is og T shaped board with 2 independent 50 led strings coming off it
-// board 2 is one string of 150 leds
-// board 3 is one string of 50 leds
-#define V_BOARD  1
-#define XMAS
-#define WINTERx
-
-constexpr bool board2 = (V_BOARD == 2);
-constexpr bool board3 = (V_BOARD == 3);
-
 
 using std::begin, std::end;
 
 constexpr int LedPin = 25;
 constexpr int NeopixelAPin = board3 ? 15 : 28;
-constexpr int NumLeds = board2 ? 150 : 50;
+constexpr int NumLeds = board2 ? 150 : (board4 ? 40 : 50);
 
+constexpr float RScale = board4 ? 0.3f : 1.f;
+constexpr float GScale = board4 ? 0.3f : 0.6f;
+constexpr float BScale = board4 ? 0.3f : 0.2f;
 
 bool gLedState = false;
 
@@ -66,7 +71,13 @@ inline T sign(T x)
     return (x >= T(0)) ? T(1) : T(-1);
 }
 
-#ifdef XMAS
+
+//-------------------------------------------------------------------------------
+// X M A S
+//
+
+namespace xmas
+{
 
 void updateString(float now, auto& string)
 {
@@ -104,23 +115,24 @@ void updateString(float now, auto& string)
     }
 }
 
-void updateStringA(float now)
-{
-    updateString(now, gNeoPixelsA);
-}
-
-void updateStringB(float now)
-{
-    updateString(now, gNeoPixelsB);
-}
-
 void updateLights(float now)
 {
-    updateStringA(now);
-    updateStringB(now);
+    updateString(now, gNeoPixelsA);
+
+#if V_BOARD == 1
+    updateString(now, gNeoPixelsB);
+#endif
 }
 
-#elif (V_BOARD == 1)
+} // namespace xmas
+
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+// C L A S S I C
+//
+
+namespace classic
+{
 
 inline FHsv calc_light_col_hsv(int i, float now)
 {
@@ -145,19 +157,29 @@ void updateLights(float now)
     for (int i=0; i<NumLeds; ++i)
     {
         FHsv col = calc_light_col_hsv(i + 0, now);
-        gNeoPixelsA.set_hsv_scaled(i, col.h, col.s, col.v, 1.f, 0.6f, 0.2f);
+        gNeoPixelsA.set_hsv_scaled(i, col.h, col.s, col.v, RScale, GScale, BScale);
     }
     sleep_us(100);
+
+#if V_BOARD == 1
     for (int i=0; i<NumLeds; ++i)
     {
         FHsv col = calc_light_col_hsv(99 - i, now);
-        gNeoPixelsB.set_hsv_scaled(i, col.h, col.s, col.v, 1.f, 0.6f, 0.2f);
+        gNeoPixelsB.set_hsv_scaled(i, col.h, col.s, col.v, RScale, GScale, BScale);
     }
+#endif
 }
 
-#elif defined(WINTER)
+} // namespace classic
 
 
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+// W I N T E R
+//
+
+namespace winter
+{
 std::default_random_engine g_randGenerator;
 std::uniform_real_distribution<float> g_randDistribution(0.f, 1.f);
 
@@ -379,20 +401,31 @@ void updateLights(float now)
     for (int i=0; i<NumLeds; ++i)
     {
         FHsv col = g_backBuffer[i];
-        Rgb rgb = col.toRgbScaled(1.f, 0.6f, 0.3f);
+        Rgb rgb = col.toRgbScaled(RScale, GScale, BScale);
         gNeoPixelsA.set_rgb(i, rgb.r, rgb.g, rgb.b);
     }
 }
 
-#else // board #2
+} // namespace winter
 
+
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+// S H I M M E R
+//
+
+namespace shimmer
+{
 
 FHsv gentle_shimmer(int i, float now)
 {
+    const float tscale = now * 0.05f;
+
     return {
-        0.1f,
+        tscale - std::floorf(tscale),
         0.3f,
-        0.3f * perlinNoise1D(float(i) * 3.f + now * 5.f) };
+        0.05f + 0.25f * perlinNoise1D(float(i) * 3.f + now * 5.f)
+    };
 }
 
 FHsv classic_xmas(int i, float now)
@@ -408,23 +441,44 @@ FHsv classic_xmas(int i, float now)
     }
 }
 
-
-void updateLights(float now)
+void updateString(float now, auto& ledString, int offsetLedIx, bool flippedIndices)
 {
-    sleep_us(500);
+    constexpr int MaxI = NumLeds - 1;
     for (int i=0; i<NumLeds; ++i)
     {
-        FHsv scene1 = classic_xmas(i, now);
-        FHsv scene2 = gentle_shimmer(i, now);
-        float scene = easeInOut3(perlinNoise1D(float(i) * 0.1f + now * 1.f));
+        const int ledIx = offsetLedIx + (flippedIndices ? MaxI - i : i); 
+
+        FHsv scene1 = classic_xmas(ledIx, now);
+        FHsv scene2 = gentle_shimmer(ledIx, now);
+        float scene = 1.f;//easeInOut3(perlinNoise1D(float(ledIx) * 0.1f + now * 1.f));
         FHsv col = lerp(scene1, scene2, scene);
 
-        gNeoPixelsA.set_hsv_scaled(i, col.h, col.s, col.v, 1.f, 0.6f, 0.2f);
+        ledString.set_hsv_scaled(i, col.h, col.s, col.v, RScale, GScale, BScale);
+
+        //ledString.set_rgb(i, 0x10, i, NumLeds - i);
     }
 }
 
-#endif
 
+void updateLights(float now)
+{
+    sleep_us(1000);
+
+    updateString(now, gNeoPixelsA, 0, false);
+
+#if V_BOARD == 1
+    updateString(now, gNeoPixelsB, NumLeds, true);
+#endif
+}
+
+} // namespace shimmer
+
+
+
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+// C O R E
+//
 
 void loop()
 {
@@ -433,15 +487,15 @@ void loop()
     usSinceBoot &= 0xfffffffffull;
     float now = (float(usSinceBoot) * (1.f / (1000.f * 1000.f)));
 
-    updateLights(now);
+    shimmer::updateLights(now);
 
     gNeoPixelsA.update();
     sleep_us(500);
 
 #if V_BOARD == 1
     gNeoPixelsB.update();
-    sleep_us(500);
 #endif
+    sleep_us(500);
 }
 
 int main() {
@@ -449,11 +503,11 @@ int main() {
     gpio_set_dir(LedPin, GPIO_OUT);
     gpio_put(LedPin, 1);
 
-    stdio_usb_init();
+    gNeoPixelsA.set_grb_order(board4);  // board4 has pixels with GRB order addressing :|
 
-#ifdef WINTER
-    init_particles();
-#endif
+    //stdio_usb_init();
+
+    winter::init_particles();
 
     for(;;)
     {

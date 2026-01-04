@@ -23,7 +23,9 @@
 #include "pico/stdlib.h"
 #include "pico/mutex.h"
 
-class WS2812 {
+
+class WS2812
+{
    public:
     static constexpr uint SERIAL_FREQ_400KHZ  = 400000;
     static constexpr uint SERIAL_FREQ_800KHZ  = 800000;
@@ -37,18 +39,19 @@ class WS2812 {
 #pragma pack(push, 1)
     union alignas(4) RGB {
         struct {
-            uint8_t r;
-            uint8_t g;
-            uint8_t b;
+            uint8_t r = 0;
+            uint8_t g = 0;
+            uint8_t b = 0;
         };
         uint32_t srgb;
+
         void operator=(uint32_t v) { srgb = v; };
         void rgb(uint8_t r, uint8_t g, uint8_t b) {
             this->g = g;
             this->r = r;
             this->b = b;
         };
-        RGB() : r(0), g(0), b(0){};
+        RGB() = default;
     };
 #pragma pack(pop)
 
@@ -57,6 +60,8 @@ class WS2812 {
     ~WS2812();
 
     static int64_t reset_time_alert_callback(alarm_id_t id, void *user_data);
+
+    void set_grb_order(bool order) { grb_order = order; }
 
     bool update();
     void set_request_send();
@@ -75,5 +80,6 @@ class WS2812 {
     uint pio_program_offset;
     uint32_t num_leds;
     RGB **buffer;
+    bool grb_order = false;
     bool request_send = false;
 };

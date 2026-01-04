@@ -203,6 +203,10 @@ void WS2812::set_hsv_scaled(uint32_t index, float h, float s, float v, float rSc
 void WS2812::set_rgb(uint32_t index, uint8_t r, uint8_t g, uint8_t b) {
     if (index >= num_leds) return;
 
-    buffer[BUFFER_IN][index].rgb(r, g, b);
+    if (grb_order)
+        buffer[BUFFER_IN][index].rgb(g, r, b);
+    else
+        buffer[BUFFER_IN][index].rgb(r, g, b);
+
     request_send = true;
 }
