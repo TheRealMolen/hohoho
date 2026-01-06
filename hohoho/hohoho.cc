@@ -8,10 +8,11 @@
 // board 2 is one string of 150 leds
 // board 3 is one string of 50 leds
 // board 4 is one 5x8 panel of 40 leds
-#define V_BOARD  4
+#define V_BOARD  2
 #define XMASx
 #define WINTERx
 
+constexpr bool board1 = (V_BOARD == 1);
 constexpr bool board2 = (V_BOARD == 2);
 constexpr bool board3 = (V_BOARD == 3);
 constexpr bool board4 = (V_BOARD == 4);
@@ -29,12 +30,15 @@ constexpr bool board4 = (V_BOARD == 4);
 #include "colour.h"
 #include "noise.h"
 
+#define HSL_INT(h,s,l) FHsv{ float(h) / 360.f, float(s) / 100.f, float(l) / 100.f }
+
 
 using std::begin, std::end;
 
 constexpr int LedPin = 25;
 constexpr int NeopixelAPin = board3 ? 15 : 28;
 constexpr int NumLeds = board2 ? 150 : (board4 ? 40 : 50);
+constexpr int TotalLeds = board1 ? (2*NumLeds) : NumLeds;
 
 constexpr float RScale = board4 ? 0.3f : 1.f;
 constexpr float GScale = board4 ? 0.3f : 0.6f;
@@ -50,6 +54,24 @@ constexpr int NeopixelBPin = 2;
 auto gNeoPixelsB = WS2812(NumLeds, pio1, 1, 1, NeopixelBPin);
 #endif
 
+
+std::default_random_engine g_randGenerator;
+std::uniform_real_distribution<float> g_randDistribution(0.f, 1.f);
+
+inline float rand01()
+{
+    return g_randDistribution(g_randGenerator);
+}
+inline float randRange(float lo, float hi)
+{
+    return lo + (hi-lo) * rand01();
+}
+inline const auto& pick(const auto& container)
+{
+    std::uniform_int_distribution<int> dist(0, int(container.size() - 1));
+    int ix = dist(g_randGenerator);
+    return container[ix];
+}
 
 inline constexpr float easeInOut3(float x)
 {
@@ -71,11 +93,15 @@ inline T sign(T x)
     return (x >= T(0)) ? T(1) : T(-1);
 }
 
+inline float ramp(float t)
+{
+    return fmodf(t, 1.f);
+}
+
 
 //-------------------------------------------------------------------------------
 // X M A S
 //
-
 namespace xmas
 {
 
@@ -180,27 +206,6 @@ void updateLights(float now)
 
 namespace winter
 {
-std::default_random_engine g_randGenerator;
-std::uniform_real_distribution<float> g_randDistribution(0.f, 1.f);
-
-inline float rand01()
-{
-    return g_randDistribution(g_randGenerator);
-}
-inline float randRange(float lo, float hi)
-{
-    return lo + (hi-lo) * rand01();
-}
-inline const auto& pick(const auto& container)
-{
-    std::uniform_int_distribution<int> dist(0, int(container.size() - 1));
-    int ix = dist(g_randGenerator);
-    return container[ix];
-}
-
-
-#define HSL_INT(h,s,l) FHsv{ float(h) / 360.f, float(s) / 100.f, float(l) / 100.f }
-
 const std::array<FHsv, 5> kBgPalette =
 {
     HSL_INT(96, 2, 5),
@@ -263,9 +268,6 @@ float g_timeToNextParticle = 1.f;
 
 void init_particles()
 {
-    // we have hardware random bits, let's use some!
-    g_randGenerator.seed(get_rand_32());
-
     for (FParticle& p : g_particles)
         init(p);
 
@@ -371,11 +373,6 @@ void render_particles()
 
 
 
-inline float ramp(float t)
-{
-    return fmodf(t, 1.f);
-}
-
 float g_lastNow = 0.f;
 void updateLights(float now)
 {
@@ -419,25 +416,116 @@ namespace shimmer
 
 FHsv gentle_shimmer(int i, float now)
 {
-    const float tscale = now * 0.05f;
-
     return {
-        tscale - std::floorf(tscale),
-        0.3f,
-        0.05f + 0.25f * perlinNoise1D(float(i) * 3.f + now * 5.f)
+        0.1f,
+        0.4f,
+        0.05f + 0.25f * perlinNoise1D(float(i) * 3.f + now * 3.f)
     };
 }
 
-FHsv classic_xmas(int i, float now)
+
+enum class EParticlePhase : uint8_t { SLEEPING, WAKING, COOLING, };
+struct FParticle
 {
-    float v = 0.05f + 0.2f * perlinNoise1D(float(i) * 3.f + now * 4.f);
-    v = std::max(0.f, v);
-    switch(i & 3)
+    int Pos;
+    float CurrHeat;
+    FHsv Col;
+    EParticlePhase Phase;
+};
+const std::array<FHsv, 3> kParticlePalette =
+{
+    HSL_INT(339, 80, 56),
+    HSL_INT(61, 80, 54),
+    HSL_INT(172, 80, 59),
+};
+
+void init(FParticle& p)
+{
+    p.Pos = -1;
+    p.CurrHeat = -1.f;
+    p.Col = { 0.1f, 0.1f, 0.5f };
+    p.Phase = EParticlePhase::SLEEPING;
+}
+
+constexpr int MaxParticles = (TotalLeds / 10) + 1;
+FParticle g_particles[MaxParticles];
+
+float g_timeToNextParticle = 0.f;
+
+void init_particles()
+{
+    for (FParticle& p : g_particles)
+        init(p);
+
+    g_timeToNextParticle = 0.02f;
+}
+
+FParticle* get_particle_to_recycle()
+{
+    for (FParticle& p : g_particles)
     {
-        case 0: return { 0.f, 0.8f, v };      // red
-        case 1: return { 0.6f, 1.f, v };     // blue
-        case 2: return { 0.1f, 0.8f, v };    // amber
-        default: return { 0.35f, 0.8f, v };   // green
+        if (p.Phase == EParticlePhase::SLEEPING)
+            return &p;
+    }
+
+    return nullptr;
+}
+bool try_spawn_particle()
+{
+    FParticle* p = get_particle_to_recycle();
+    if (!p)
+        return false; 
+
+    p->Phase = EParticlePhase::WAKING;
+
+    p->Pos = int(randRange(float(TotalLeds) * 0.01f, float(TotalLeds) * 0.99f));
+
+    p->CurrHeat = 0.05f;
+
+    p->Col = pick(kParticlePalette);
+    p->Col.h += randRange(-0.1f, 0.1f);
+    p->Col.h = std::clamp(p->Col.h, 0.f, 1.f);
+
+    return true;
+}
+
+void update_particles(float deltaTime)
+{
+    // tick all existing particles
+    for (FParticle& p : g_particles)
+    {
+        switch (p.Phase)
+        {
+            case EParticlePhase::WAKING:
+                p.CurrHeat += deltaTime * 0.5f;
+                if (p.CurrHeat >= 1.f)
+                {
+                    p.CurrHeat = 1.f;
+                    p.Phase = EParticlePhase::COOLING;
+                }
+                break;
+
+            case EParticlePhase::COOLING:
+                p.CurrHeat -= deltaTime * 0.2f;
+                if (p.CurrHeat <= 0.f)
+                    p.Phase = EParticlePhase::SLEEPING;
+                break;
+        }
+    }
+
+    // spawn a new particle if it's time and we have particles free
+    g_timeToNextParticle -= deltaTime;
+    if (g_timeToNextParticle <= 0.f)
+    {
+        if (try_spawn_particle())
+        {
+            g_timeToNextParticle = randRange(0.1f, 0.25f);
+            gpio_put(LedPin, 0);
+        }
+        else
+        {
+            gpio_put(LedPin, 1);
+        }
     }
 }
 
@@ -448,21 +536,35 @@ void updateString(float now, auto& ledString, int offsetLedIx, bool flippedIndic
     {
         const int ledIx = offsetLedIx + (flippedIndices ? MaxI - i : i); 
 
-        FHsv scene1 = classic_xmas(ledIx, now);
-        FHsv scene2 = gentle_shimmer(ledIx, now);
-        float scene = 1.f;//easeInOut3(perlinNoise1D(float(ledIx) * 0.1f + now * 1.f));
-        FHsv col = lerp(scene1, scene2, scene);
+        FHsv shimmer_base = gentle_shimmer(ledIx, now);
+
+        FHsv col = shimmer_base;
+
+        for (const FParticle& p : g_particles)
+        {
+            if (p.Pos != ledIx || p.Phase == EParticlePhase::SLEEPING)
+                continue;
+
+            FHsv pcol = p.Col;
+            pcol.v *= 0.9f * perlinNoise1D(float(ledIx) * 3.f + now * 3.f);
+
+            col = lerp(col, pcol, p.CurrHeat);
+        }
 
         ledString.set_hsv_scaled(i, col.h, col.s, col.v, RScale, GScale, BScale);
-
-        //ledString.set_rgb(i, 0x10, i, NumLeds - i);
     }
 }
 
+float g_lastNow = 0.f;
 
 void updateLights(float now)
 {
+    float deltaTime = now - g_lastNow;
+    g_lastNow = now;
+
     sleep_us(1000);
+
+    update_particles(deltaTime);
 
     updateString(now, gNeoPixelsA, 0, false);
 
@@ -498,16 +600,22 @@ void loop()
     sleep_us(500);
 }
 
-int main() {
+int main()
+{
     gpio_init(LedPin);
     gpio_set_dir(LedPin, GPIO_OUT);
     gpio_put(LedPin, 1);
 
-    gNeoPixelsA.set_grb_order(board4);  // board4 has pixels with GRB order addressing :|
+    // we have hardware random bits, let's use some!
+    g_randGenerator.seed(get_rand_32());
+
+    //gNeoPixelsA.set_grb_order(board4);  // board4 has pixels with GRB order addressing :|
+    // update: seems like perhaps this is something that's nondeterministic. reading the data sheet, i think it's expecting only 24bits per pixel, not 32
 
     //stdio_usb_init();
 
     winter::init_particles();
+    shimmer::init_particles();
 
     for(;;)
     {
