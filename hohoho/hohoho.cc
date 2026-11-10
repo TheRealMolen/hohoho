@@ -8,8 +8,8 @@
 // board 2 is one string of 150 leds
 // board 3 is one string of 50 leds
 // board 4 is one 5x8 panel of 40 leds
-#define V_BOARD  2
-#define XMASx
+#define V_BOARD  1
+#define XMAS
 #define WINTERx
 
 constexpr bool board1 = (V_BOARD == 1);
@@ -29,6 +29,10 @@ constexpr bool board4 = (V_BOARD == 4);
 
 #include "colour.h"
 #include "noise.h"
+
+#include "xmas_pal.def.h"
+
+
 
 #define HSL_INT(h,s,l) FHsv{ float(h) / 360.f, float(s) / 100.f, float(l) / 100.f }
 
@@ -105,7 +109,7 @@ inline float ramp(float t)
 namespace xmas
 {
 
-void updateString(float now, auto& string)
+void updateString_og(float now, auto& string)
 {
     FHsv blue(col::NiceBlue);
     FHsv amber(col::NiceAmber);
@@ -141,12 +145,36 @@ void updateString(float now, auto& string)
     }
 }
 
+
+void updateString(float now, auto& string, int led_offs = 0)
+{
+    FHsv pal[] = { col::NiceRed, col::NiceGreen, col::NiceBlue, col::NiceAmber };
+
+    for (int i=0; i<NumLeds; ++i)
+    {
+        const int led = i + led_offs;
+
+        FRgb col = pal[kXmasPal[led]].toRgb();
+        FRgb out(col);
+
+        {
+            float t = cosf(float(led) * (6.28f / NumLeds) + now * 0.4f);
+            t = 0.6f * std::max(0.f, t);
+            t += 0.4f * perlinNoise1D(float(led) * 3.f + now * 4.f);
+            out = out * t;
+        }
+
+        set_pixel(string, i, out);
+    }
+}
+
+
 void updateLights(float now)
 {
     updateString(now, gNeoPixelsA);
 
 #if V_BOARD == 1
-    updateString(now, gNeoPixelsB);
+    updateString(now, gNeoPixelsB, NumLeds);
 #endif
 }
 
@@ -589,7 +617,11 @@ void loop()
     usSinceBoot &= 0xfffffffffull;
     float now = (float(usSinceBoot) * (1.f / (1000.f * 1000.f)));
 
+#ifdef XMAS
+    xmas::updateLights(now);
+#else
     shimmer::updateLights(now);
+#endif
 
     gNeoPixelsA.update();
     sleep_us(500);
